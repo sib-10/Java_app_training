@@ -38,7 +38,7 @@ jobs:
     steps:
       - name: Run mock test
         run: |
-          echo "Running tests..."
+          echo "Running tests...
           echo "Tests completed successfully!"
 
   notify:
