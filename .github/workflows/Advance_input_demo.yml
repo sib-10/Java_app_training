@@ -1,0 +1,38 @@
+name: Advanced Input Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, stage, prod]
+      run_tests:
+        type: boolean
+        default: true
+      retry_count:
+        type: number
+        default: 1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Always Run
+        run: echo "Pipeline started"
+
+      - name: Run Tests
+        if: github.event.inputs.run_tests == 'true'
+        run: echo "Executing tests"
+
+      - name: Deploy to Dev
+        if: github.event.inputs.environment == 'dev'
+        run: echo "Deploying to Dev"
+
+      - name: Deploy to Prod
+        if: github.event.inputs.environment == 'prod'
+        run: echo "Deploying to Production"
+
+      - name: Retry Logic
+        if: github.event.inputs.retry_count > 1
+        run: echo "Retries enabled"
