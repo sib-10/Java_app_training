@@ -1,0 +1,27 @@
+name: Env Variables Demo
+
+on: workflow_dispatch
+
+env:
+  GLOBAL_ENV: "global-value"
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+
+    env:
+      JOB_ENV: "job-value"
+
+    steps:
+      - name: Print all env vars
+        run: |
+          echo "Global: $GLOBAL_ENV"
+          echo "Job: $JOB_ENV"
+
+      - name: Step-level env
+        env:
+          STEP_ENV: "step-value"
+        run: |
+          echo "Step: $STEP_ENV"
+          echo "Global: $GLOBAL_ENV"
+          echo "Job: $JOB_ENV"
