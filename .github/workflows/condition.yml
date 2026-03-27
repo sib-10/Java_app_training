@@ -6,6 +6,12 @@ jobs:
     build:
       runs-on: ubuntu-latest
       if: github.ref == 'refs/heads/main'
-      
+
       steps:
-      - run: echo "Running on main branch"
+      - name: Step 1
+        run: echo "Hello"
+
+      - name: Step 2
+        if: failure()
+        run: echo "Runs only if step 1 fails"
+
