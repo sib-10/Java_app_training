@@ -20,4 +20,8 @@ jobs:
           echo "API URL: $API_URL"
           echo "DB password lenght: ${#DB_PASS}"
           echo "DB password: $DB_PASS"
+      - name: write secret to file
+        run: |
+          echo "DB password: $DB_PASS" > db_password.txt
+          cat db_password.txt
 
