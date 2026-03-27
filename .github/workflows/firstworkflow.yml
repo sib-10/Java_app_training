@@ -21,7 +21,7 @@ jobs:
           echo "Repository: $GITHUB_REPOSITORY"
           echo "Event: $GITHUB_EVENT_NAME"
           echo "SHA: $GITHUB_SHA"
-                - name: List installed tools
+      - name: List installed tools
         run: |
           echo "=== Java ==="
           java -version 2>&1 || echo 'Not installed'
