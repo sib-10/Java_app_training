@@ -15,7 +15,9 @@ jobs:
       - name: Print all environment variables
         env:
           API_URL: ${{vars.API_URL}}
-          APP_MODE: ${{vars.APP_MODE}}
+          DB_PASS: ${{secrets.DB_PASSWORD}}
         run: |
           echo "API URL: $API_URL"
-          echo "APP Mode: $APP_MODE"
+          echo "DB password lenght: ${#DB_PASS}"
+          echo "DB password: $DB_PASS"
+
