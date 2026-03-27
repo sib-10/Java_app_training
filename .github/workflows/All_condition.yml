@@ -1,0 +1,129 @@
+name: All Conditions Demo
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: dev
+
+env:
+  ENVIRONMENT: prod
+
+jobs:
+
+  # 🔹 1. Job runs only on main branch + push
+  build:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Print context
+        run: |
+          echo "Branch: ${{ github.ref }}"
+          echo "Event: ${{ github.event_name }}"
+
+      - name: Step runs only if previous succeeds
+        if: success()
+        run: echo "Previous step succeeded"
+
+      - name: Run only if commit message contains 'deploy'
+        if: contains(github.event.head_commit.message, 'deploy')
+        run: echo "Deploy keyword detected"
+
+      - name: Skip bot user
+        if: github.actor != 'dependabot[bot]'
+        run: echo "Not triggered by bot"
+
+
+  # 🔹 2. Job using workflow_dispatch input
+  deploy-input:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod'
+
+    steps:
+      - run: echo "Manual deployment to PROD"
+
+
+  # 🔹 3. Env condition (moved to step level)
+  env-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run only if env is prod
+        if: env.ENVIRONMENT == 'prod'
+        run: echo "Environment is PROD"
+
+
+  # 🔹 4. Matrix job with condition
+  matrix-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [18, 20]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Print matrix config
+        run: |
+          echo "OS: ${{ matrix.os }}"
+          echo "Node: ${{ matrix.node }}"
+
+      - name: Run only on Ubuntu
+        if: matrix.os == 'ubuntu-latest'
+        run: echo "Running Ubuntu-specific step"
+
+
+  # 🔹 5. Secrets check (fixed using env mapping)
+  secrets-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check secret safely
+        env:
+          MY_SECRET: ${{ secrets.MY_SECRET }}
+        if: env.MY_SECRET != ''
+        run: echo "Secret is configured"
+
+
+  # 🔹 6. Failure handling example
+  failure-demo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Force failure
+        run: exit 1
+
+      - name: Runs only on failure
+        if: failure()
+        run: echo "Previous step failed"
+
+      - name: Always runs
+        if: always()
+        run: echo "Cleanup step"
+
+
+  # 🔹 7. Combined logical conditions
+  combined-condition:
+    runs-on: ubuntu-latest
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.event_name == 'push'
+
+    steps:
+      - run: echo "Running on main OR dev branch"
+
+
+  # 🔹 8. Cancel condition example
+  cancel-demo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Dummy step
+        run: echo "Simulating job"
+
+      - name: Runs if cancelled
+        if: cancelled()
+        run: echo "Workflow was cancelled"
