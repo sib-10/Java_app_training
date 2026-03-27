@@ -1,4 +1,4 @@
-name: Condition Demo
+name: Condition stage of environment
 
 on:
   workflow_dispatch:
