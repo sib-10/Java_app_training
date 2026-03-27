@@ -9,7 +9,7 @@ jobs:
   demo:
     runs-on: ubuntu-latest
 
-    environment: production
+    environment: test
 
     steps:
       - name: Print all environment variables
