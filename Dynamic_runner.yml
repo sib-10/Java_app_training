@@ -1,0 +1,79 @@
+name: Smart Build Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # 🔍 Detect application type
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.detect.outputs.app }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect application type
+        id: detect
+        run: |
+          if [ -f "pom.xml" ] || [ -f "build.gradle" ]; then
+            echo "Detected Java project"
+            echo "app=java" >> $GITHUB_OUTPUT
+          elif ls *.csproj 1> /dev/null 2>&1; then
+            echo "Detected .NET project"
+            echo "app=dotnet" >> $GITHUB_OUTPUT
+          else
+            echo "Unknown project type"
+            echo "app=unknown" >> $GITHUB_OUTPUT
+          fi
+
+  # 🏗️ Build job (dynamic runner selection)
+  build:
+    needs: detect
+    runs-on: ${{ needs.detect.outputs.app == 'java' && 'ubuntu-latest' || 'windows-latest' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Print detected app
+        run: echo "App is ${{ needs.detect.outputs.app }}"
+
+      # ☕ Java Build
+      - name: Set up JDK
+        if: needs.detect.outputs.app == 'java'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build Java (Maven)
+        if: needs.detect.outputs.app == 'java' && hashFiles('pom.xml') != ''
+        run: mvn clean install -B
+
+      - name: Build Java (Gradle)
+        if: needs.detect.outputs.app == 'java' && hashFiles('build.gradle') != ''
+        run: ./gradlew build
+
+      # 🟣 .NET Build
+      - name: Setup .NET
+        if: needs.detect.outputs.app == 'dotnet'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        if: needs.detect.outputs.app == 'dotnet'
+        run: dotnet restore
+
+      - name: Build .NET
+        if: needs.detect.outputs.app == 'dotnet'
+        run: dotnet build --configuration Release
+
+      # ❌ Fail if unknown
+      - name: Fail if unknown app
+        if: needs.detect.outputs.app == 'unknown'
+        run: |
+          echo "Unsupported project type"
+          exit 1
