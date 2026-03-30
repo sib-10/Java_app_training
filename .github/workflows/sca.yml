@@ -1,0 +1,141 @@
+name: Security Scans - Secrets & SCA
+
+on:
+  workflow_dispatch:
+
+jobs:
+
+  # ---- Job 1: Secret Scan ----
+  gitleaks:
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+        continue-on-error: true
+
+      - name: Upload Gitleaks SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: gitleaks
+        continue-on-error: true
+
+      - name: Upload Gitleaks Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: results.sarif
+          retention-days: 30
+
+      - name: Quality Gate - Secrets
+        if: steps.gitleaks.outcome == 'failure'
+        run: |
+          echo "=========================================="
+          echo "  QUALITY GATE FAILED - SECRETS FOUND"
+          echo "=========================================="
+          exit 1
+
+  # ---- Job 2: SCA - Dependency Scan ----
+  sca:
+    name: SCA - Dependency Check
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Cache OWASP NVD Data
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/owasp
+          key: owasp-nvd-${{ github.run_id }}
+          restore-keys: owasp-nvd-
+
+      - name: Run OWASP Dependency-Check
+        id: depcheck
+        run: |
+          mvn org.owasp:dependency-check-maven:check \
+            -DfailBuildOnCVSS=7 \
+            -Dformats=HTML,JSON,SARIF \
+            -DprettyPrint=true \
+            -DsuppressionsFile=owasp-suppressions.xml \
+            -B
+        continue-on-error: true
+
+      - name: Upload OWASP SARIF to Security Tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: target/dependency-check-report.sarif
+          category: owasp-dependency-check
+        continue-on-error: true
+
+      - name: Upload OWASP HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-dependency-check-report
+          path: |
+            target/dependency-check-report.html
+            target/dependency-check-report.json
+          retention-days: 30
+
+      - name: Quality Gate - SCA
+        if: steps.depcheck.outcome == 'failure'
+        run: |
+          echo "=========================================="
+          echo "  QUALITY GATE FAILED - CVEs FOUND"
+          echo "  CVSS score >= 7 (HIGH/CRITICAL)"
+          echo "  Download the OWASP report artifact"
+          echo "  for full details."
+          echo "=========================================="
+          exit 1
+
+  # ---- Job 3: Summary Gate ----
+  security-gate:
+    name: Security Quality Gate
+    runs-on: ubuntu-latest
+    needs: [gitleaks, sca]
+    if: always()
+    steps:
+      - name: Check all scan results
+        run: |
+          echo "=========================================="
+          echo "  SECURITY SCAN SUMMARY"
+          echo "=========================================="
+          echo "  Gitleaks  : ${{ needs.gitleaks.result }}"
+          echo "  SCA/OWASP : ${{ needs.sca.result }}"
+          echo "=========================================="
+
+          if [[ "${{ needs.gitleaks.result }}" != "success" || "${{ needs.sca.result }}" != "success" ]]; then
+            echo ""
+            echo "  ONE OR MORE SCANS FAILED"
+            echo "  Pipeline blocked. Fix issues and re-run."
+            echo "=========================================="
+            exit 1
+          fi
+
+          echo ""
+          echo "  ALL SCANS PASSED"
+          echo "=========================================="
