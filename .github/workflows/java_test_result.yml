@@ -1,4 +1,4 @@
-name: Java Apllication Build
+name: Java Apllication test result
 
 on:
   workflow_dispatch:
