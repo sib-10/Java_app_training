@@ -47,9 +47,68 @@ jobs:
           echo "=========================================="
           exit 1
 
-  # ---- Job 2: SCA - Dependency Scan ----
+  # ---- Job 2: SCA - Trivy Dependency Scan ----
   sca:
-    name: SCA - Dependency Check
+    name: SCA - Trivy Dependency Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy SCA Scan
+        id: trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+        continue-on-error: true
+
+      - name: Run Trivy SARIF Report
+        if: always()
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy SARIF to Security Tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-sca
+        continue-on-error: true
+
+      - name: Upload Trivy Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sca-report
+          path: trivy-results.sarif
+          retention-days: 30
+
+      - name: Quality Gate - SCA
+        if: steps.trivy.outcome == 'failure'
+        run: |
+          echo "=========================================="
+          echo "  QUALITY GATE FAILED - CVEs FOUND"
+          echo "  HIGH/CRITICAL vulnerabilities detected"
+          echo "  Check Security tab or download the"
+          echo "  trivy-sca-report artifact for details."
+          echo "=========================================="
+          exit 1
+
+# ---- Job 3: SAST - CodeQL ----
+  codeql:
+    name: SAST - CodeQL Analysis
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -65,58 +124,45 @@ jobs:
           java-version: '17'
           cache: 'maven'
 
-      - name: Cache OWASP NVD Data
-        uses: actions/cache@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
         with:
-          path: ~/.m2/repository/org/owasp
-          key: owasp-nvd-${{ github.run_id }}
-          restore-keys: owasp-nvd-
+          languages: java-kotlin
+          queries: security-and-quality
 
-      - name: Run OWASP Dependency-Check
-        id: depcheck
+      - name: Build for CodeQL
+        run: mvn clean package -DskipTests -B
+
+      - name: Perform CodeQL Analysis
+        id: codeql
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-java
+          output: codeql-results
+
+      - name: Check CodeQL Results
+        id: codeql-check
         run: |
-          mvn org.owasp:dependency-check-maven:check \
-            -DfailBuildOnCVSS=7 \
-            -Dformats=HTML,JSON,SARIF \
-            -DprettyPrint=true \
-            -DsuppressionsFile=owasp-suppressions.xml \
-            -B
-        continue-on-error: true
+          # Count alerts from SARIF file
+          ALERT_COUNT=$(jq '[.runs[].results[]] | length' codeql-results/*.sarif)
+          echo "alert_count=$ALERT_COUNT" >> "$GITHUB_OUTPUT"
+          echo "CodeQL found $ALERT_COUNT alert(s)"
 
-      - name: Upload OWASP SARIF to Security Tab
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: target/dependency-check-report.sarif
-          category: owasp-dependency-check
-        continue-on-error: true
-
-      - name: Upload OWASP HTML Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owasp-dependency-check-report
-          path: |
-            target/dependency-check-report.html
-            target/dependency-check-report.json
-          retention-days: 30
-
-      - name: Quality Gate - SCA
-        if: steps.depcheck.outcome == 'failure'
+      - name: Quality Gate - SAST
+        if: steps.codeql-check.outputs.alert_count != '0'
         run: |
           echo "=========================================="
-          echo "  QUALITY GATE FAILED - CVEs FOUND"
-          echo "  CVSS score >= 7 (HIGH/CRITICAL)"
-          echo "  Download the OWASP report artifact"
-          echo "  for full details."
+          echo "  QUALITY GATE FAILED - CODE ISSUES FOUND"
+          echo "  CodeQL found ${{ steps.codeql-check.outputs.alert_count }} alert(s)"
+          echo "  Check Security tab > Code scanning"
           echo "=========================================="
           exit 1
 
-  # ---- Job 3: Summary Gate ----
+  # ---- Job 4: Summary Gate ----
   security-gate:
     name: Security Quality Gate
     runs-on: ubuntu-latest
-    needs: [gitleaks, sca]
+    needs: [gitleaks, sca, codeql]
     if: always()
     steps:
       - name: Check all scan results
@@ -124,14 +170,16 @@ jobs:
           echo "=========================================="
           echo "  SECURITY SCAN SUMMARY"
           echo "=========================================="
-          echo "  Gitleaks  : ${{ needs.gitleaks.result }}"
-          echo "  SCA/OWASP : ${{ needs.sca.result }}"
+          echo "  Gitleaks (Secrets) : ${{ needs.gitleaks.result }}"
+          echo "  Trivy (SCA)       : ${{ needs.sca.result }}"
+          echo "  CodeQL (SAST)     : ${{ needs.codeql.result }}"
           echo "=========================================="
 
-          if [[ "${{ needs.gitleaks.result }}" != "success" || "${{ needs.sca.result }}" != "success" ]]; then
+          if [[ "${{ needs.gitleaks.result }}" != "success" || \
+                "${{ needs.sca.result }}" != "success" || \
+                "${{ needs.codeql.result }}" != "success" ]]; then
             echo ""
             echo "  ONE OR MORE SCANS FAILED"
-            echo "  Pipeline blocked. Fix issues and re-run."
             echo "=========================================="
             exit 1
           fi
