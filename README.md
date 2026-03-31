@@ -3,35 +3,6 @@ Welcome to Github Action Trainings
 
 Lab URL	https://digitallabs.palmeto.co.in
 
-No    	Participant Name	            Username	Password
-1	    Sreekanth, Chirigireddy	        BOA-Git01	P@lmeto@123
-2	    Panneerselvam, Santhoshkumar	BOA-Git02	P@lmeto@123
-3	    J, KRUTHIKA	                    BOA-Git03	P@lmeto@123
-4		Subramanian, Aiswarya          	BOA-Git04	P@lmeto@123
-5	    Kavin, J S	                    BOA-Git05	P@lmeto@123
-6	    Kamalakannan, Bharathi	        BOA-Git06	P@lmeto@123
-7	    Gowthaman, Hariprasath        	BOA-Git07	P@lmeto@123
-8	    Senthilnathan, Chinniah         BOA-Git08	P@lmeto@123
-9	    Uthayakumar, Vimalkumar(Vimal)	BOA-Git09	P@lmeto@123
-10	    Panakkul, Shrijesh	            BOA-Git10	P@lmeto@123
-11	    Bhave, Prasad                	BOA-Git11	P@lmeto@123
-12	    Pravin X	                    BOA-Git12	P@lmeto@123
-13	    Sumathi Shunmugavel	            BOA-Git13	P@lmeto@123
-14	    Sachin P	                    BOA-Git14	P@lmeto@123
-15	    Duraisubramanian Muthu	        BOA-Git15	P@lmeto@123
-16	    Selvam, Rangith 	            BOA-Git16	P@lmeto@123
-17	    K, Karunakaran	                BOA-Git17	P@lmeto@123
-18	    Preetha D	                    BOA-Git18	P@lmeto@123
-19	    Nayak, Ashisa K	                BOA-Git19	P@lmeto@123
-20	    Periyasamy, Mahesh	            BOA-Git20	P@lmeto@123
-21	    Gangaramani, Kamlesh K 	        BOA-Git21	P@lmeto@123
-22	    Sanapiratti Ravi, Balaji 	    BOA-Git22	P@lmeto@123
-23	    Shashanka Shekhar Mishra	    BOA-Git23	P@lmeto@123
-24	    Saurabh Priyadarshi	            BOA-Git24	P@lmeto@123
-25	    Sumera Shaik	                BOA-Git25	P@lmeto@123
-26	    Sibtain Ali	                    BOA-Git26	P@lmeto@123
-27	    Prasanth S	                    BOA-Git27	P@lmeto@123
-
 
 Connect to lab
 ---
