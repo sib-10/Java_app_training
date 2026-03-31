@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}   
+  IMAGE_NAME: {{ github.repository.toLower() }}
 
 jobs:
   build:
@@ -59,7 +59,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository.toLower() }}
+          images: { github.repository.toLower() }}
           tags: |
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
