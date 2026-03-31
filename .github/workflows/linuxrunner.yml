@@ -1,0 +1,84 @@
+name: Java Build + Coverage (Linux)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    name: Build, Test & Coverage
+    runs-on: [self-hosted, ubunturunner]
+
+    steps:
+      # ── Clean workspace (raw self-hosted runners don't auto-clean) ──
+      - name: Clean workspace
+        run: |
+          echo "Cleaning workspace: $GITHUB_WORKSPACE"
+          rm -rf "$GITHUB_WORKSPACE"/*
+
+      # ── Checkout ──
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Verify tools are available ──
+      - name: Verify prerequisites
+        run: |
+          echo "=== Java ==="
+          java -version
+          echo ""
+          echo "=== Maven ==="
+          mvn -version
+          echo ""
+          echo "=== Git ==="
+          git --version
+
+      # ── Build + Test + JaCoCo ──
+      - name: Build and generate coverage
+        run: mvn clean verify
+
+      # ── Publish JUnit results ──
+      - name: Publish Test Report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: JUnit Tests (Linux)
+          path: target/surefire-reports/*.xml
+          reporter: java-junit
+
+      # ── Upload JaCoCo HTML report ──
+      - name: Upload JaCoCo Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage-linux
+          path: target/site/jacoco/
+
+      # ── Coverage threshold check (unstable warning) ──
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(python3 -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('target/site/jacoco/jacoco.xml')
+          counter = tree.findall('.//counter[@type=\"LINE\"]')[-1]
+          missed = int(counter.get('missed'))
+          covered = int(counter.get('covered'))
+          print(round(covered / (covered + missed) * 100, 2))
+          ")
+          echo "==============================="
+          echo "  Line Coverage: ${COVERAGE}%"
+          echo "==============================="
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "::warning::UNSTABLE - Coverage is ${COVERAGE}%, below 80% target"
+          else
+            echo "::notice::Coverage is ${COVERAGE}% - target met!"
+          fi
+
+      # ── Post coverage summary on PR ──
+      - name: JaCoCo PR Comment
+        uses: madrapps/jacoco-report@v1.7.1
+        if: github.event_name == 'pull_request'
+        with:
+          paths: target/site/jacoco/jacoco.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          min-coverage-overall: 60
+          min-coverage-changed-files: 80
+          title: "## Code Coverage Report (Linux)"
+          update-comment: true
