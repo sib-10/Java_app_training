@@ -1,90 +1,125 @@
 package com.example;
 
-public class App {
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import static org.junit.jupiter.api.Assertions.*;
 
-    // --- Arithmetic ---
-    public int add(int a, int b) {
-        return a + b;
+public class AppTest {
+
+    private App app;
+
+    @BeforeEach
+    void setUp() {
+        app = new App();
     }
 
-    public int subtract(int a, int b) {
-        return a - b;
+    // --- Arithmetic tests ---
+    @Test
+    void testAdd() {
+        assertEquals(8, app.add(5, 3));
+        assertEquals(0, app.add(-1, 1));
     }
 
-    public int multiply(int a, int b) {
-        return a * b;
+    @Test
+    void testSubtract() {
+        assertEquals(2, app.subtract(5, 3));
     }
 
-    public double divide(int a, int b) {
-        if (b == 0) {
-            throw new ArithmeticException("Cannot divide by zero");
-        }
-        return (double) a / b;
+    @Test
+    void testMultiply() {
+        assertEquals(15, app.multiply(5, 3));
     }
 
-    // --- String utilities ---
-    public boolean isPalindrome(String input) {
-        if (input == null) {
-            return false;
-        }
-        String cleaned = input.replaceAll("\\s+", "").toLowerCase();
-        String reversed = new StringBuilder(cleaned).reverse().toString();
-        return cleaned.equals(reversed);
+    @Test
+    void testDivide() {
+        assertEquals(2.5, app.divide(5, 2), 0.001);
     }
 
-    public String greet(String name) {
-        if (name == null || name.isBlank()) {
-            return "Hello, World!";
-        }
-        return "Hello, " + name.trim() + "!";
+    @Test
+    void testDivideByZero() {
+        assertThrows(ArithmeticException.class, () -> app.divide(5, 0));
     }
 
-    // --- Number classification ---
-    public String classifyNumber(int n) {
-        if (n > 0) {
-            return "positive";
-        } else if (n < 0) {
-            return "negative";
-        } else {
-            return "zero";
-        }
+    // --- String utility tests ---
+    @Test
+    void testIsPalindromeTrue() {
+        assertTrue(app.isPalindrome("racecar"));
+        assertTrue(app.isPalindrome("A man a plan a canal Panama"));
     }
 
-    public boolean isEven(int n) {
-        return n % 2 == 0;
+    @Test
+    void testIsPalindromeFalse() {
+        assertFalse(app.isPalindrome("hello"));
     }
 
-    // --- FizzBuzz (classic branch-heavy example) ---
-    public String fizzBuzz(int n) {
-        if (n <= 0) {
-            throw new IllegalArgumentException("Input must be positive");
-        }
-        if (n % 15 == 0) {
-            return "FizzBuzz";
-        } else if (n % 3 == 0) {
-            return "Fizz";
-        } else if (n % 5 == 0) {
-            return "Buzz";
-        } else {
-            return String.valueOf(n);
-        }
+    @Test
+    void testIsPalindromeNull() {
+        assertFalse(app.isPalindrome(null));
     }
 
-    // --- Intentionally UNTESTED method (to show coverage gaps) ---
-    public int factorial(int n) {
-        if (n < 0) {
-            throw new IllegalArgumentException("Negative input not allowed");
-        }
-        if (n <= 1) {
-            return 1;
-        }
-        return n * factorial(n - 1);
+    @Test
+    void testGreetWithName() {
+        assertEquals("Hello, Alice!", app.greet("Alice"));
     }
 
-    public static void main(String[] args) {
-        App app = new App();
-        System.out.println("Sum: " + app.add(5, 3));
-        System.out.println("Palindrome: " + app.isPalindrome("racecar"));
-        System.out.println("FizzBuzz(15): " + app.fizzBuzz(15));
+    @Test
+    void testGreetWithNull() {
+        assertEquals("Hello, World!", app.greet(null));
     }
+
+    @Test
+    void testGreetWithBlank() {
+        assertEquals("Hello, World!", app.greet("   "));
+    }
+
+    // --- Number classification tests ---
+    @Test
+    void testClassifyPositive() {
+        assertEquals("positive", app.classifyNumber(42));
+    }
+
+    @Test
+    void testClassifyNegative() {
+        assertEquals("negative", app.classifyNumber(-7));
+    }
+
+    @Test
+    void testClassifyZero() {
+        assertEquals("zero", app.classifyNumber(0));
+    }
+
+    @Test
+    void testIsEven() {
+        assertTrue(app.isEven(4));
+        assertFalse(app.isEven(3));
+    }
+
+    // --- FizzBuzz tests ---
+    @Test
+    void testFizzBuzzFizz() {
+        assertEquals("Fizz", app.fizzBuzz(9));
+    }
+
+    @Test
+    void testFizzBuzzBuzz() {
+        assertEquals("Buzz", app.fizzBuzz(10));
+    }
+
+    @Test
+    void testFizzBuzzFizzBuzz() {
+        assertEquals("FizzBuzz", app.fizzBuzz(15));
+    }
+
+    @Test
+    void testFizzBuzzNumber() {
+        assertEquals("7", app.fizzBuzz(7));
+    }
+
+    @Test
+    void testFizzBuzzInvalid() {
+        assertThrows(IllegalArgumentException.class, () -> app.fizzBuzz(0));
+    }
+
+    // NOTE: factorial() is intentionally NOT tested here
+    //       to demonstrate a coverage gap in the JaCoCo report.
 }
