@@ -1,0 +1,18 @@
+Create a .trivyignore file in root
+
+# Container image false positives - baselined on 2026-03-31
+
+# gnutls - DoS via crafted ClientHello
+CVE-2026-1584
+
+# libpng - heap buffer overflow
+CVE-2026-25646
+
+# libpng - use-after-free
+CVE-2026-33416
+
+# libpng - out-of-bounds read/write
+CVE-2026-33636
+
+# zlib - buffer overflow in untgz utility
+CVE-2026-22184
