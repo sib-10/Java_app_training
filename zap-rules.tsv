@@ -1,0 +1,6 @@
+10038	WARN	(Content Security Policy Header Not Set)
+10063	WARN	(Permissions Policy Header Not Set)
+10098	WARN	(Cross-Domain Misconfiguration)
+10202	WARN	(Absence of Anti-CSRF Tokens)
+40025	FAIL	(Proxy Disclosure)
+90033	WARN	(Loosely Scoped Cookie)
