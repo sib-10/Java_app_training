@@ -3328,3 +3328,441 @@ jobs:
 
 save -- commit and push -- run the workflow
 
+
+
+name: DAST pipeline
+
+on:
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+
+  # ========== STAGE 1: SECURITY SCANS (parallel) ==========
+
+  gitleaks:
+    name: Secret Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Gitleaks
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ARGUMENTS: --log-opts=-1
+        continue-on-error: true
+
+      - name: Upload Gitleaks SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: gitleaks
+        continue-on-error: true
+
+      - name: Upload Gitleaks Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: results.sarif
+          retention-days: 30
+
+      - name: Quality Gate - Secrets
+        if: steps.gitleaks.outcome == 'failure'
+        run: |
+          echo "=========================================="
+          echo "  QUALITY GATE FAILED - SECRETS FOUND"
+          echo "  Check Security tab or download"
+          echo "  gitleaks-report artifact for details."
+          echo "=========================================="
+          exit 1
+
+  sca:
+    name: SCA - Trivy Dependency Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy SCA Scan
+        id: trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          trivyignores: .trivyignore
+        continue-on-error: true
+
+      - name: Run Trivy SARIF Report
+        if: always()
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-sca-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          trivyignores: .trivyignore
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-sca-results.sarif
+          category: trivy-sca
+        continue-on-error: true
+
+      - name: Upload Trivy Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sca-report
+          path: trivy-sca-results.sarif
+          retention-days: 30
+
+      - name: Quality Gate - SCA
+        if: steps.trivy.outcome == 'failure'
+        run: |
+          echo "=========================================="
+          echo "  QUALITY GATE FAILED - DEPENDENCY CVEs"
+          echo "  HIGH/CRITICAL vulnerabilities found"
+          echo "  in project dependencies."
+          echo "=========================================="
+          exit 1
+
+  codeql:
+    name: SAST - CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+          queries: security-and-quality
+
+      - name: Build for CodeQL
+        run: mvn clean package -DskipTests -B
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-java
+          output: codeql-results
+
+      - name: Count CodeQL Alerts
+        id: codeql-check
+        if: always()
+        run: |
+          ALERT_COUNT=$(jq '[.runs[].results[]] | length' codeql-results/*.sarif)
+          echo "alert_count=$ALERT_COUNT" >> "$GITHUB_OUTPUT"
+          echo "CodeQL found $ALERT_COUNT alert(s)"
+
+      - name: Quality Gate - SAST
+        if: steps.codeql-check.outputs.alert_count != '0'
+        run: |
+          echo "=========================================="
+          echo "  QUALITY GATE FAILED - CODE ISSUES FOUND"
+          echo "  CodeQL found ${{ steps.codeql-check.outputs.alert_count }} alert(s)"
+          echo "  Check Security tab > Code scanning"
+          echo "  for detailed findings."
+          echo "=========================================="
+          exit 1
+
+  # ========== STAGE 2: SECURITY GATE ==========
+
+  security-gate:
+    name: Security Quality Gate
+    runs-on: ubuntu-latest
+    needs: [gitleaks, sca, codeql]
+    if: always()
+    steps:
+      - name: Evaluate scan results
+        run: |
+          echo "=========================================="
+          echo "  SECURITY SCAN SUMMARY"
+          echo "=========================================="
+          echo "  Gitleaks (Secrets) : ${{ needs.gitleaks.result }}"
+          echo "  Trivy (SCA)       : ${{ needs.sca.result }}"
+          echo "  CodeQL (SAST)     : ${{ needs.codeql.result }}"
+          echo "=========================================="
+
+          if [[ "${{ needs.gitleaks.result }}" != "success" || \
+                "${{ needs.sca.result }}" != "success" || \
+                "${{ needs.codeql.result }}" != "success" ]]; then
+            echo ""
+            echo "  PIPELINE BLOCKED - Fix issues first"
+            echo "=========================================="
+            exit 1
+          fi
+
+          echo ""
+          echo "  ALL SCANS PASSED - Proceeding to build"
+          echo "=========================================="
+
+  # ========== STAGE 3: BUILD & TEST ==========
+
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    needs: security-gate
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Build and Test
+        run: mvn clean package -B
+
+      - name: Publish Test Report
+        uses: dorny/test-reporter@v3
+        if: always()
+        with:
+          name: JUnit Tests
+          path: target/surefire-reports/*.xml
+          reporter: java-junit
+
+      - name: Upload JAR Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-app-jar
+          path: target/*.jar
+          retention-days: 30
+
+  # ========== STAGE 4: DOCKER BUILD, SCAN & PUSH ==========
+
+  docker:
+    name: Docker Build, Scan & Push
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image (local)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # --- Container Scan: Table output for logs ---
+      - name: Trivy Container Scan - Table
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:scan
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          trivyignores: .trivyignore
+
+      # --- Container Scan: JSON output for quality gate ---
+      - name: Trivy Container Scan - JSON
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:scan
+          format: 'json'
+          output: 'trivy-image-results.json'
+          severity: 'CRITICAL,HIGH'
+          trivyignores: .trivyignore
+
+      # --- Container Scan: SARIF for Security tab ---
+      - name: Trivy Container Scan - SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:scan
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          trivyignores: .trivyignore
+
+      - name: Upload Container Scan SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image-results.sarif
+          category: trivy-container
+        continue-on-error: true
+
+      - name: Upload Container Scan Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-container-scan-report
+          path: |
+            trivy-image-results.json
+            trivy-image-results.sarif
+          retention-days: 30
+
+      # --- Quality Gate: Parse JSON and count vulns ---
+      - name: Count Container Vulnerabilities
+        id: container-check
+        run: |
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-image-results.json)
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-image-results.json)
+          TOTAL=$((CRITICAL + HIGH))
+          echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
+          echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "=========================================="
+          echo "  CONTAINER SCAN RESULTS"
+          echo "  Critical : $CRITICAL"
+          echo "  High     : $HIGH"
+          echo "  Total    : $TOTAL"
+          echo "=========================================="
+
+      - name: Quality Gate - Container Scan
+        if: steps.container-check.outputs.total != '0'
+        run: |
+          echo "=========================================="
+          echo "  QUALITY GATE FAILED - IMAGE CVEs FOUND"
+          echo "=========================================="
+          echo "  Critical : ${{ steps.container-check.outputs.critical }}"
+          echo "  High     : ${{ steps.container-check.outputs.high }}"
+          echo "=========================================="
+          echo "  Image will NOT be pushed to registry."
+          echo "  Fix base image or suppress false positives."
+          echo "=========================================="
+          exit 1
+
+      # --- Push only if container scan passed ---
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+# ========== STAGE 5: DAST - ZAP Scan ==========
+  dast:
+    name: DAST - ZAP Baseline Scan
+    runs-on: ubuntu-latest
+    needs: docker
+    permissions:
+      security-events: write
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: ZAP Baseline Scan
+        id: zap
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: 'https://juice-shop.herokuapp.com'
+          rules_file_name: 'zap-rules.tsv'
+          allow_issue_writing: true
+          fail_action: true
+          artifact_name: zap-report
+        continue-on-error: true
+
+      - name: Upload ZAP SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: report_sarif.json
+          category: zap-dast
+        continue-on-error: true
+
+      - name: Quality Gate - DAST
+        if: steps.zap.outcome == 'failure'
+        run: |
+          echo "=========================================="
+          echo "  QUALITY GATE FAILED - DAST ISSUES FOUND"
+          echo "  Check the ZAP report artifact or"
+          echo "  Security tab for details."
+          echo "=========================================="
+          exit 1
+    
+  # ========== STAGE 5: FINAL SUMMARY ==========
+  pipeline-summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [gitleaks, sca, codeql, security-gate, build, docker, dast]
+    if: always()
+    steps:
+      - name: Pipeline Result
+        run: |
+          echo "=========================================="
+          echo "  DEVSECOPS PIPELINE SUMMARY"
+          echo "=========================================="
+          echo ""
+          echo "  SECURITY SCANS"
+          echo "  ─────────────────────────────────"
+          echo "  Gitleaks (Secrets) : ${{ needs.gitleaks.result }}"
+          echo "  Trivy (SCA)       : ${{ needs.sca.result }}"
+          echo "  CodeQL (SAST)     : ${{ needs.codeql.result }}"
+          echo "  Security Gate     : ${{ needs.security-gate.result }}"
+          echo ""
+          echo "  BUILD & DELIVERY"
+          echo "  ─────────────────────────────────"
+          echo "  Build & Test      : ${{ needs.build.result }}"
+          echo "  Docker & Push     : ${{ needs.docker.result }}"
+          echo ""
+          echo "  RUNTIME SECURITY"
+          echo "  ─────────────────────────────────"
+          echo "  ZAP DAST          : ${{ needs.dast.result }}"
+          echo "=========================================="
