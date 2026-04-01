@@ -38,3 +38,4 @@ class SearchTest extends BaseTest {
         // Page should not crash
         assertFalse(driver.getTitle().contains("Error"), "Empty search should not cause error");
     }
+}
