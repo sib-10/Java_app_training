@@ -1,0 +1,185 @@
+name: Load Test - JMeter
+
+on:
+  workflow_dispatch:
+    inputs:
+      threads:
+        description: 'Number of concurrent users'
+        required: true
+        default: '10'
+        type: string
+      duration:
+        description: 'Test duration in seconds'
+        required: true
+        default: '60'
+        type: string
+      rampup:
+        description: 'Ramp-up period in seconds'
+        required: true
+        default: '10'
+        type: string
+      target_url:
+        description: 'Target URL to test'
+        required: true
+        default: 'https://demo.testfire.net'
+        type: string
+
+jobs:
+  load-test:
+    name: JMeter Load Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install JMeter
+        run: |
+          JMETER_VERSION=5.6.3
+          wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz
+          tar -xzf apache-jmeter-${JMETER_VERSION}.tgz
+          echo "$PWD/apache-jmeter-${JMETER_VERSION}/bin" >> $GITHUB_PATH
+          echo "JMETER_HOME=$PWD/apache-jmeter-${JMETER_VERSION}" >> $GITHUB_ENV
+
+      - name: Verify JMeter Installation
+        run: jmeter --version
+
+      - name: Run JMeter Load Test
+        id: jmeter
+        run: |
+          mkdir -p results
+
+          jmeter -n \
+            -t jmeter/load-test-plan.jmx \
+            -Jthreads=${{ github.event.inputs.threads || '10' }} \
+            -Jduration=${{ github.event.inputs.duration || '60' }} \
+            -Jrampup=${{ github.event.inputs.rampup || '10' }} \
+            -Jtarget_url=${{ github.event.inputs.target_url || 'https://demo.testfire.net' }} \
+            -l results/test-results.jtl \
+            -j results/jmeter.log \
+            -e -o results/html-report
+
+      - name: Parse Results & Quality Gate
+        id: quality-gate
+        run: |
+          # Parse JTL results
+          TOTAL=$(tail -n +2 results/test-results.jtl | wc -l)
+          ERRORS=$(tail -n +2 results/test-results.jtl | awk -F',' '{if($8=="false") count++} END {print count+0}')
+          ERROR_RATE=$(echo "scale=2; $ERRORS * 100 / $TOTAL" | bc)
+
+          # Calculate average response time
+          AVG_RESPONSE=$(tail -n +2 results/test-results.jtl | awk -F',' '{sum+=$2; count++} END {printf "%.0f", sum/count}')
+
+          # Calculate 95th percentile
+          P95=$(tail -n +2 results/test-results.jtl | awk -F',' '{print $2}' | sort -n | awk '{a[NR]=$1} END {print a[int(NR*0.95)]}')
+
+          # Calculate throughput (requests per second)
+          FIRST_TS=$(tail -n +2 results/test-results.jtl | head -1 | awk -F',' '{print $1}')
+          LAST_TS=$(tail -n +2 results/test-results.jtl | tail -1 | awk -F',' '{print $1}')
+          DURATION_MS=$((LAST_TS - FIRST_TS))
+          if [ "$DURATION_MS" -gt 0 ]; then
+            THROUGHPUT=$(echo "scale=2; $TOTAL * 1000 / $DURATION_MS" | bc)
+          else
+            THROUGHPUT=0
+          fi
+
+          echo "=========================================="
+          echo "  JMETER LOAD TEST RESULTS"
+          echo "=========================================="
+          echo "  Total Requests     : $TOTAL"
+          echo "  Failed Requests    : $ERRORS"
+          echo "  Error Rate         : ${ERROR_RATE}%"
+          echo "  Avg Response Time  : ${AVG_RESPONSE}ms"
+          echo "  95th Percentile    : ${P95}ms"
+          echo "  Throughput         : ${THROUGHPUT} req/sec"
+          echo "=========================================="
+
+          # Save to outputs
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
+          echo "error_rate=$ERROR_RATE" >> "$GITHUB_OUTPUT"
+          echo "avg_response=$AVG_RESPONSE" >> "$GITHUB_OUTPUT"
+          echo "p95=$P95" >> "$GITHUB_OUTPUT"
+          echo "throughput=$THROUGHPUT" >> "$GITHUB_OUTPUT"
+
+          # Quality Gate Thresholds
+          MAX_ERROR_RATE=5
+          MAX_AVG_RESPONSE=3000
+          MAX_P95=5000
+
+          GATE_PASSED=true
+
+          if (( $(echo "$ERROR_RATE > $MAX_ERROR_RATE" | bc -l) )); then
+            echo "FAIL: Error rate ${ERROR_RATE}% exceeds threshold ${MAX_ERROR_RATE}%"
+            GATE_PASSED=false
+          fi
+
+          if [ "$AVG_RESPONSE" -gt "$MAX_AVG_RESPONSE" ]; then
+            echo "FAIL: Avg response ${AVG_RESPONSE}ms exceeds threshold ${MAX_AVG_RESPONSE}ms"
+            GATE_PASSED=false
+          fi
+
+          if [ "$P95" -gt "$MAX_P95" ]; then
+            echo "FAIL: P95 ${P95}ms exceeds threshold ${MAX_P95}ms"
+            GATE_PASSED=false
+          fi
+
+          echo "gate_passed=$GATE_PASSED" >> "$GITHUB_OUTPUT"
+
+      - name: Quality Gate Decision
+        if: steps.quality-gate.outputs.gate_passed == 'false'
+        run: |
+          echo "=========================================="
+          echo "  QUALITY GATE FAILED"
+          echo "=========================================="
+          echo "  Thresholds:"
+          echo "    Max Error Rate    : 5%"
+          echo "    Max Avg Response  : 3000ms"
+          echo "    Max P95 Response  : 5000ms"
+          echo ""
+          echo "  Actual:"
+          echo "    Error Rate        : ${{ steps.quality-gate.outputs.error_rate }}%"
+          echo "    Avg Response      : ${{ steps.quality-gate.outputs.avg_response }}ms"
+          echo "    P95 Response      : ${{ steps.quality-gate.outputs.p95 }}ms"
+          echo "=========================================="
+          exit 1
+
+      - name: Create Summary
+        if: always()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## 📊 JMeter Load Test Results
+
+          | Metric | Value | Threshold | Status |
+          |--------|-------|-----------|--------|
+          | Total Requests | ${{ steps.quality-gate.outputs.total }} | - | ℹ️ |
+          | Error Rate | ${{ steps.quality-gate.outputs.error_rate }}% | < 5% | ${{ steps.quality-gate.outputs.error_rate > 5 && '❌' || '✅' }} |
+          | Avg Response Time | ${{ steps.quality-gate.outputs.avg_response }}ms | < 3000ms | ${{ steps.quality-gate.outputs.avg_response > 3000 && '❌' || '✅' }} |
+          | P95 Response Time | ${{ steps.quality-gate.outputs.p95 }}ms | < 5000ms | ${{ steps.quality-gate.outputs.p95 > 5000 && '❌' || '✅' }} |
+          | Throughput | ${{ steps.quality-gate.outputs.throughput }} req/s | - | ℹ️ |
+
+          **Configuration:** ${{ github.event.inputs.threads || '10' }} users, ${{ github.event.inputs.duration || '60' }}s duration, ${{ github.event.inputs.rampup || '10' }}s ramp-up
+          EOF
+
+      - name: Upload JMeter HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-html-report
+          path: results/html-report/
+          retention-days: 30
+
+      - name: Upload JMeter Raw Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-raw-results
+          path: |
+            results/test-results.jtl
+            results/jmeter.log
+          retention-days: 30
